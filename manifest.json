@@ -1,10 +1,10 @@
 {
   "name": "Scan & Traducteur Pro",
   "short_name": "ScanTrad",
-  "description": "Numérisation OCR (Caméra/PDF) et traduction instantanée",
+  "description": "Numérisation OCR (Caméra/PDF/ZIP) et traduction instantanée",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#f8fafc",
+  "background_color": "#0f172a",
   "theme_color": "#2563eb",
   "orientation": "portrait-primary",
   "icons": [
@@ -14,5 +14,18 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "share_target": {
+    "action": "./index.html",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "shared_files",
+          "accept": ["application/pdf", "application/zip", "application/x-zip-compressed", "image/*", "text/plain"]
+        }
+      ]
+    }
+  }
 }
