@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3898/3898082.png">
+    <title>Scan & Traducteur Pro</title>
+
+    <!-- Bibliothèques : Tesseract (OCR), PDF.js (Lecture PDF), jsPDF (Export PDF) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --bg: #f1f5f9;
+            --card: #ffffff;
+            --text: #0f172a;
+            --border: #cbd5e1;
+        }
+        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 12px;
+            padding-bottom: 40px;
+        }
+        .app-header {
+            background: var(--primary);
+            color: white;
+            padding: 16px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+        }
+        .app-header h1 { font-size: 1.2rem; margin: 0; }
+        #installBtn {
+            display: none;
+            background: #ffffff;
+            color: var(--primary);
+            border: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        .card {
+            background: var(--card);
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 15px;
+        }
+        .tabs {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        .tab-btn {
+            padding: 10px 6px;
+            border: 1px solid var(--border);
+            background: #f8fafc;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        .input-section { display: none; }
+        .input-section.active { display: block; }
+        
+        .drop-zone {
+            border: 2px dashed var(--primary);
+            border-radius: 10px;
+            padding: 25px 15px;
+            text-align: center;
+            background: #eff6ff;
+            cursor: pointer;
+        }
+        video {
+            width: 100%;
+            max-height: 300px;
+            border-radius: 8px;
+            background: #000;
+        }
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            text-align: center;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-dark { background: #334155; color: white; }
+        .btn-success { background: #059669; color: white; }
+
+        .lang-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: white;
+            font-size: 0.95rem;
+            margin-top: 4px;
+        }
+        .status-bar {
+            background: #e0f2fe;
+            color: #0369a1;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        textarea {
+            width: 100%;
+            height: 180px;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            font-size: 1rem;
+            line-height: 1.4;
+            margin-top: 8px;
+            resize: vertical;
+        }
+        .export-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .export-btn {
+            flex: 1;
+            min-width: 70px;
+            padding: 8px 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: #f8fafc;
+            cursor: pointer;
+        }
+        .export-btn.pdf { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
+        .export-btn.word { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
+    </style>
+</head>
+<body>
+
+<div class="app-header">
+    <h1>📄 Scan & Traducteur</h1>
+    <button id="installBtn">📲 Installer l'App</button>
+</div>
+
+<div class="card">
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('file', this)">📁 PDF / Image</button>
+        <button class="tab-btn" onclick="switchTab('camera', this)">📷 Caméra</button>
+        <button class="tab-btn" onclick="switchTab('text', this)">✍️ Texte</button>
+    </div>
+
+    <!-- Import Fichier -->
+    <div id="sec-file" class="input-section active">
+        <div class="drop-zone" onclick="document.getElementById('fileInput').click()">
+            <p style="margin:0 0 6px 0; font-weight:bold;">Toucher pour choisir un PDF ou une Photo</p>
+            <span style="font-size:0.8rem; color:#475569;">Supporte PDF (texte ou scanné), JPG, PNG</span>
+            <input type="file" id="fileInput" accept=".pdf,image/*" style="display:none" onchange="handleFileUpload(event)">
+        </div>
+    </div>
+
+    <!-- Caméra -->
+    <div id="sec-camera" class="input-section">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <div class="btn-row">
+            <button class="btn btn-dark" onclick="startCamera()">🎥 Ouvrir Caméra</button>
+            <button class="btn btn-primary" onclick="capturePhoto()">📸 Scanner</button>
+        </div>
+    </div>
+
+    <!-- Texte Libre -->
+    <div id="sec-text" class="input-section">
+        <p style="margin:0; font-size:0.9rem; color:#475569;">Saisissez ou collez votre texte directement dans le champ « Texte numérisé » ci-dessous.</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="lang-grid">
+        <div>
+            <label style="font-size:0.85rem; font-weight:bold;">Langue source (OCR)</label>
+            <select id="ocrLang">
+                <option value="fra">Français</option>
+                <option value="eng">Anglais</option>
+                <option value="ara">Arabe</option>
+                <option value="spa">Espagnol</option>
+                <option value="deu">Allemand</option>
+                <option value="ita">Italien</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:0.85rem; font-weight:bold;">Traduire vers</label>
+            <select id="targetLang">
+                <option value="fr">Français</option>
+                <option value="en" selected>Anglais</option>
+                <option value="ar">Arabe</option>
+                <option value="es">Espagnol</option>
+                <option value="de">Allemand</option>
+                <option value="it">Italien</option>
+            </select>
+        </div>
+    </div>
+    <button class="btn btn-success" style="width:100%;" onclick="translateText()">🌐 Traduire maintenant</button>
+</div>
+
+<div class="status-bar" id="status">Prêt à numériser.</div>
+
+<!-- Zone Texte Numérisé -->
+<div class="card">
+    <strong>1. Texte numérisé / Source</strong>
+    <textarea id="sourceText" placeholder="Le texte extrait apparaîtra ici..."></textarea>
+    <div class="export-bar">
+        <button class="export-btn" onclick="copyText('sourceText')">📋 Copier</button>
+        <button class="export-btn pdf" onclick="exportPDF('sourceText', 'Document_Numerise')">📕 PDF</button>
+        <button class="export-btn word" onclick="exportWord('sourceText', 'Document_Numerise')">📘 Word</button>
+        <button class="export-btn" onclick="exportTXT('sourceText', 'Document_Numerise')">📄 TXT</button>
+    </div>
+</div>
+
+<!-- Zone Traduction -->
+<div class="card">
+    <strong>2. Traduction</strong>
+    <textarea id="translatedText" placeholder="La traduction apparaîtra ici..."></textarea>
+    <div class="export-bar">
+        <button class="export-btn" onclick="copyText('translatedText')">📋 Copier</button>
+        <button class="export-btn pdf" onclick="exportPDF('translatedText', 'Document_Traduit')">📕 PDF</button>
+        <button class="export-btn word" onclick="exportWord('translatedText', 'Document_Traduit')">📘 Word</button>
+        <button class="export-btn" onclick="exportTXT('translatedText', 'Document_Traduit')">📄 TXT</button>
+    </div>
+</div>
+
+<script>
+    // Enregistrement du Service Worker PWA
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW erreur:', err));
+    }
+
+    // Bouton d'installation PWA
+    let deferredPrompt;
+    const installBtn = document.getElementById('installBtn');
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        installBtn.style.display = 'block';
+    });
+    installBtn.addEventListener('click', async () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            installBtn.style.display = 'none';
+        }
+    });
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const statusEl = document.getElementById('status');
+    const sourceTextEl = document.getElementById('sourceText');
+    const translatedTextEl = document.getElementById('translatedText');
+    let stream = null;
+
+    function switchTab(tab, btn) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.input-section').forEach(s => s.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('sec-' + tab).classList.add('active');
+        if (tab !== 'camera' && stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
+    }
+
+    // Import PDF & Image
+    async function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        sourceTextEl.value = '';
+        translatedTextEl.value = '';
+
+        if (file.type === 'application/pdf') {
+            await processPDF(file);
+        } else if (file.type.startsWith('image/')) {
+            await runOCR(file);
+        } else {
+            statusEl.textContent = "Format non supporté.";
+        }
+    }
+
+    async function processPDF(file) {
+        statusEl.textContent = "Lecture du PDF...";
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let fullText = "";
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+            statusEl.textContent = `Analyse page ${i}/${pdf.numPages}...`;
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+
+            if (pageText.trim().length < 20) {
+                statusEl.textContent = `Page ${i} scannée : OCR en cours...`;
+                const viewport = page.getViewport({ scale: 2.0 });
+                const canvas = document.createElement('canvas');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+                const ocrText = await recognizeCanvas(canvas);
+                fullText += `--- Page ${i} ---\n${ocrText}\n\n`;
+            } else {
+                fullText += `--- Page ${i} ---\n${pageText}\n\n`;
+            }
+        }
+        sourceTextEl.value = fullText.trim();
+        statusEl.textContent = "✅ Extraction PDF terminée !";
+    }
+
+    // Caméra
+    async function startCamera() {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            document.getElementById('video').srcObject = stream;
+            statusEl.textContent = "Caméra prête. Cadrez le texte et appuyez sur Scanner.";
+        } catch (err) {
+            statusEl.textContent = "Erreur caméra : " + err.message;
+        }
+    }
+
+    async function capturePhoto() {
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        if (!video.srcObject) return alert("Activez d'abord la caméra.");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        statusEl.textContent = "Numérisation OCR en cours...";
+        sourceTextEl.value = await recognizeCanvas(canvas);
+        statusEl.textContent = "✅ Texte extrait de la photo !";
+    }
+
+    // OCR
+    async function runOCR(imageFile) {
+        const lang = document.getElementById('ocrLang').value;
+        statusEl.textContent = "Numérisation OCR en cours...";
+        const worker = await Tesseract.createWorker(lang);
+        const ret = await worker.recognize(imageFile);
+        sourceTextEl.value = ret.data.text;
+        await worker.terminate();
+        statusEl.textContent = "✅ Numérisation terminée !";
+    }
+
+    async function recognizeCanvas(canvas) {
+        const lang = document.getElementById('ocrLang').value;
+        const worker = await Tesseract.createWorker(lang);
+        const ret = await worker.recognize(canvas);
+        await worker.terminate();
+        return ret.data.text;
+    }
+
+    // Traduction
+    async function translateText() {
+        const text = sourceTextEl.value.trim();
+        if (!text) return alert("Aucun texte à traduire.");
+
+        const langMap = { 'fra': 'fr', 'eng': 'en', 'ara': 'ar', 'spa': 'es', 'deu': 'de', 'ita': 'it' };
+        const sourceLang = langMap[document.getElementById('ocrLang').value] || 'autodetect';
+        const targetLang = document.getElementById('targetLang').value;
+
+        statusEl.textContent = "Traduction en cours...";
+        translatedTextEl.value = "";
+        const chunks = text.match(/.{1,450}(\s|$)/gs) || [text];
+        let finalTranslation = "";
+
+        try {
+            for (let chunk of chunks) {
+                const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(chunk)}&langpair=${sourceLang}|${targetLang}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data.responseData) finalTranslation += data.responseData.translatedText + " ";
+            }
+            translatedTextEl.value = finalTranslation.trim();
+            statusEl.textContent = "✅ Traduction terminée !";
+        } catch (error) {
+            statusEl.textContent = "Erreur traduction : " + error.message;
+        }
+    }
+
+    // EXPORTATIONS (Copier, PDF, Word, TXT)
+    function copyText(id) {
+        const el = document.getElementById(id);
+        if (!el.value) return;
+        navigator.clipboard.writeText(el.value);
+        statusEl.textContent = "📋 Texte copié !";
+    }
+
+    function exportPDF(id, filename) {
+        const text = document.getElementById(id).value.trim();
+        if (!text) return alert("Le champ est vide.");
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const lines = doc.splitTextToSize(text, 180);
+        let y = 15;
+        lines.forEach(line => {
+            if (y > 280) {
+                doc.addPage();
+                y = 15;
+            }
+            doc.text(line, 15, y);
+            y += 7;
+        });
+        doc.save(`${filename}.pdf`);
+        statusEl.textContent = "📕 Fichier PDF téléchargé !";
+    }
+
+    function exportWord(id, filename) {
+        const text = document.getElementById(id).value.trim();
+        if (!text) return alert("Le champ est vide.");
+        const htmlContent = `
+            <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+            <head><meta charset='utf-8'><title>${filename}</title></head>
+            <body style="font-family: Arial, sans-serif; line-height: 1.5;">
+                ${text.replace(/\n/g, '<br>')}
+            </body></html>`;
+        const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${filename}.doc`;
+        link.click();
+        statusEl.textContent = "📘 Fichier Word (.doc) téléchargé !";
+    }
+
+    function exportTXT(id, filename) {
+        const text = document.getElementById(id).value.trim();
+        if (!text) return alert("Le champ est vide.");
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${filename}.txt`;
+        link.click();
+        statusEl.textContent = "📄 Fichier TXT téléchargé !";
+    }
+</script>
+
+</body>
+</html>
