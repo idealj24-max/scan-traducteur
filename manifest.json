@@ -1,0 +1,18 @@
+{
+  "name": "Scan & Traducteur Pro",
+  "short_name": "ScanTrad",
+  "description": "Numérisation OCR (Caméra/PDF) et traduction instantanée",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3898/3898082.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
