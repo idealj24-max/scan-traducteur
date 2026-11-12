@@ -130,6 +130,17 @@
             text-align: center;
             background: var(--drop-bg);
             cursor: pointer;
+            display: block;
+        }
+        .file-badge {
+            display: inline-block;
+            background: var(--primary);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            margin-top: 8px;
         }
         video {
             width: 100%;
@@ -181,6 +192,7 @@
             font-weight: 600;
             margin-bottom: 15px;
             text-align: center;
+            word-break: break-word;
         }
         textarea {
             width: 100%;
@@ -244,9 +256,7 @@
             border: 1px solid var(--border);
             background: var(--tab-bg);
             cursor: pointer;
-            transition: border-color 0.2s;
         }
-        .history-item:hover { border-color: var(--primary); }
         .history-meta {
             display: flex;
             justify-content: space-between;
@@ -280,13 +290,15 @@
         <button class="tab-btn" onclick="switchTab('text', this)">✍️ Texte</button>
     </div>
 
-    <!-- Import Fichier / ZIP / PDF / Image -->
+    <!-- Import depuis le stockage du téléphone (PDF, ZIP, Images, TXT) -->
     <div id="sec-file" class="input-section active">
-        <div class="drop-zone" onclick="document.getElementById('fileInput').click()">
-            <p style="margin:0 0 6px 0; font-weight:bold;">Toucher pour choisir un fichier (ZIP, PDF, Image)</p>
-            <span style="font-size:0.8rem; color:var(--text-muted);">Supporte ZIP, PDF, JPG, PNG, TXT</span>
-            <input type="file" id="fileInput" accept=".zip,.pdf,image/*,.txt" style="display:none" onchange="handleFileUpload(event)">
-        </div>
+        <label for="fileInput" class="drop-zone">
+            <p style="margin:0 0 6px 0; font-weight:bold;">📂 Ouvrir un fichier du téléphone</p>
+            <span style="font-size:0.82rem; color:var(--text-muted); display:block;">Accéder au stockage interne, Téléchargements ou Drive</span>
+            <span class="file-badge">PDF • ZIP • Images • TXT</span>
+        </label>
+        <!-- accept="*/*" garantit qu'Android n'affiche aucun fichier en grisé -->
+        <input type="file" id="fileInput" accept="*/*" style="display:none" onchange="handleFileUpload(event)">
     </div>
 
     <!-- Caméra -->
@@ -333,12 +345,12 @@
     <button class="btn btn-success" style="width:100%;" onclick="translateText()">🌐 Traduire maintenant</button>
 </div>
 
-<div class="status-bar" id="status">Prêt à numériser.</div>
+<div class="status-bar" id="status">Prêt à numériser (PDF, ZIP, Caméra).</div>
 
 <!-- Zone Texte Numérisé -->
 <div class="card">
     <strong>1. Texte numérisé / Source</strong>
-    <textarea id="sourceText" placeholder="Le texte extrait apparaîtra ici..."></textarea>
+    <textarea id="sourceText" placeholder="Le texte extrait de votre PDF, ZIP ou photo apparaîtra ici..."></textarea>
     <div class="export-bar">
         <button class="export-btn" onclick="copyText('sourceText')">📋 Copier</button>
         <button class="export-btn pdf" onclick="exportPDF('sourceText', 'Document_Numerise')">📕 PDF</button>
@@ -388,9 +400,13 @@
     }
     initTheme();
 
+    // --- SERVICE WORKER ---
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW erreur:', err));
+        navigator.serviceWorker.register('./sw.js').then(reg => {
+            reg.update(); // Force la vérification de mise à jour
+        }).catch(err => console.log('SW erreur:', err));
     }
+
     let deferredPrompt;
     const installBtn = document.getElementById('installBtn');
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -423,71 +439,106 @@
         }
     }
 
-    // --- GESTION DES FICHIERS (Y COMPRIS ZIP) ---
+    // --- LECTURE DES FICHIERS DU TÉLÉPHONE (PDF, ZIP, IMAGES, TXT) ---
     async function handleFileUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
+        
+        const fileName = file.name.toLowerCase();
+        const fileType = file.type.toLowerCase();
+        
         sourceTextEl.value = '';
         translatedTextEl.value = '';
+        statusEl.textContent = `Fichier sélectionné : ${file.name}`;
 
-        if (file.name.endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed') {
-            await processZIP(file);
-        } else if (file.type === 'application/pdf') {
-            await processPDF(file);
-        } else if (file.type.startsWith('image/')) {
-            await runOCR(file);
-        } else if (file.type === 'text/plain') {
-            const text = await file.text();
-            sourceTextEl.value = text;
-            statusEl.textContent = "✅ Fichier texte chargé !";
-        } else {
-            statusEl.textContent = "Format non supporté.";
-        }
-    }
-
-    // Traitement des archives ZIP
-    async function processZIP(file) {
-        statusEl.textContent = "Ouverture de l'archive ZIP...";
         try {
-            const zip = new JSZip();
-            const contents = await zip.loadAsync(file);
-            let combinedText = "";
-
-            for (let filename of Object.keys(contents.files)) {
-                const zipEntry = contents.files[filename];
-                if (zipEntry.dir) continue; // Ignore les dossiers
-
-                statusEl.textContent = `Traitement de : ${filename}...`;
+            if (fileName.endsWith('.zip') || fileType.includes('zip')) {
+                await processZIP(file);
+            } else if (fileName.endsWith('.pdf') || fileType === 'application/pdf') {
+                await processPDF(file);
+            } else if (fileType.startsWith('image/') || /\.(jpg|jpeg|png|webp|bmp|gif)$/.test(fileName)) {
+                await runOCR(file);
+            } else if (fileName.endsWith('.txt') || fileName.endsWith('.csv') || fileName.endsWith('.md') || fileType.startsWith('text/')) {
+                const text = await file.text();
+                sourceTextEl.value = text;
+                statusEl.textContent = `✅ Fichier texte "${file.name}" chargé !`;
+            } else {
+                // Tentative de lecture comme ZIP ou texte brut si l'extension est masquée par Android
+                const buffer = await file.arrayBuffer();
+                const header = new Uint8Array(buffer.slice(0, 4));
+                const hex = Array.from(header).map(b => b.toString(16).padStart(2, '0')).join('');
                 
-                if (filename.toLowerCase().endsWith('.txt')) {
-                    const text = await zipEntry.async("string");
-                    combinedText += `=== Fichier: ${filename} ===\n${text}\n\n`;
-                } else if (filename.toLowerCase().endsWith('.pdf')) {
-                    const pdfData = await zipEntry.async("uint8array");
-                    const pdfText = await extractTextFromPDFBuffer(pdfData);
-                    combinedText += `=== Fichier PDF: ${filename} ===\n${pdfText}\n\n`;
-                } else if (/\.(jpg|jpeg|png|webp)$/i.test(filename)) {
-                    const imgData = await zipEntry.async("blob");
-                    const ocrText = await runOCRForBlob(imgData);
-                    combinedText += `=== Fichier Image: ${filename} ===\n${ocrText}\n\n`;
+                if (hex === '504b0304') { // Signature magique d'un fichier ZIP
+                    await processZIP(file);
+                } else if (hex === '25504446') { // Signature magique %PDF
+                    await processPDF(file);
+                } else {
+                    statusEl.textContent = `⚠️ Format non reconnu (${file.name}). Utilisez PDF, ZIP, Image ou TXT.`;
                 }
             }
-
-            sourceTextEl.value = combinedText.trim();
-            statusEl.textContent = "✅ Extraction du ZIP terminée !";
         } catch (err) {
-            statusEl.textContent = "Erreur lecture ZIP : " + err.message;
+            statusEl.textContent = `❌ Erreur de lecture : ${err.message}`;
+        }
+        
+        // Réinitialise l'input pour permettre de re-sélectionner le même fichier
+        event.target.value = '';
+    }
+
+    // --- TRAITEMENT DES ARCHIVES ZIP ---
+    async function processZIP(file) {
+        statusEl.textContent = `📦 Extraction de l'archive ${file.name}...`;
+        const zip = new JSZip();
+        const contents = await zip.loadAsync(file);
+        let combinedText = "";
+        let fileCount = 0;
+
+        const entries = Object.keys(contents.files).sort();
+
+        for (let filename of entries) {
+            const zipEntry = contents.files[filename];
+            // Ignore les dossiers et fichiers cachés Mac/Android (__MACOSX)
+            if (zipEntry.dir || filename.startsWith('__MACOSX') || filename.split('/').pop().startsWith('.')) continue;
+
+            const lowerName = filename.toLowerCase();
+            statusEl.textContent = `📦 Lecture dans le ZIP : ${filename}...`;
+            
+            if (lowerName.endsWith('.txt') || lowerName.endsWith('.md') || lowerName.endsWith('.csv')) {
+                const text = await zipEntry.async("string");
+                combinedText += `=== 📄 ${filename} ===\n${text}\n\n`;
+                fileCount++;
+            } else if (lowerName.endsWith('.pdf')) {
+                const pdfData = await zipEntry.async("uint8array");
+                const pdfText = await extractTextFromPDFBuffer(pdfData, filename);
+                combinedText += `=== 📕 ${filename} ===\n${pdfText}\n\n`;
+                fileCount++;
+            } else if (/\.(jpg|jpeg|png|webp|bmp)$/.test(lowerName)) {
+                const imgData = await zipEntry.async("blob");
+                const ocrText = await runOCRForBlob(imgData);
+                combinedText += `=== 🖼️ ${filename} ===\n${ocrText}\n\n`;
+                fileCount++;
+            }
+        }
+
+        if (fileCount === 0) {
+            statusEl.textContent = "⚠️ Aucun fichier lisible (PDF, Image, TXT) trouvé dans ce ZIP.";
+        } else {
+            sourceTextEl.value = combinedText.trim();
+            statusEl.textContent = `✅ ${fileCount} fichier(s) extrait(s) du ZIP avec succès !`;
         }
     }
 
-    async function extractTextFromPDFBuffer(arrayBuffer) {
+    // --- EXTRACTION PDF (NATIF + OCR AUTOMATIQUE) ---
+    async function extractTextFromPDFBuffer(arrayBuffer, label = "PDF") {
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         let fullText = "";
         for (let i = 1; i <= pdf.numPages; i++) {
+            statusEl.textContent = `📕 ${label} : page ${i}/${pdf.numPages}...`;
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
             const pageText = textContent.items.map(item => item.str).join(' ');
+            
             if (pageText.trim().length < 20) {
+                statusEl.textContent = `🔍 ${label} (page ${i}/${pdf.numPages}) : OCR en cours...`;
                 const viewport = page.getViewport({ scale: 2.0 });
                 const canvas = document.createElement('canvas');
                 canvas.height = viewport.height;
@@ -503,11 +554,11 @@
     }
 
     async function processPDF(file) {
-        statusEl.textContent = "Lecture du PDF...";
+        statusEl.textContent = `📕 Ouverture de ${file.name}...`;
         const arrayBuffer = await file.arrayBuffer();
-        const fullText = await extractTextFromPDFBuffer(arrayBuffer);
+        const fullText = await extractTextFromPDFBuffer(arrayBuffer, file.name);
         sourceTextEl.value = fullText.trim();
-        statusEl.textContent = "✅ Extraction PDF terminée !";
+        statusEl.textContent = `✅ PDF "${file.name}" extrait avec succès !`;
     }
 
     // --- CAMÉRA ---
@@ -536,7 +587,7 @@
     // --- OCR ---
     async function runOCR(imageFile) {
         const lang = document.getElementById('ocrLang').value;
-        statusEl.textContent = "Numérisation OCR en cours...";
+        statusEl.textContent = `🔍 Numérisation OCR de ${imageFile.name}...`;
         const worker = await Tesseract.createWorker(lang);
         const ret = await worker.recognize(imageFile);
         sourceTextEl.value = ret.data.text;
@@ -569,14 +620,15 @@
         const sourceLang = langMap[document.getElementById('ocrLang').value] || 'autodetect';
         const targetLang = document.getElementById('targetLang').value;
 
-        statusEl.textContent = "Traduction en cours...";
+        statusEl.textContent = "🌐 Traduction en cours...";
         translatedTextEl.value = "";
         const chunks = text.match(/.{1,450}(\s|$)/gs) || [text];
         let finalTranslation = "";
 
         try {
-            for (let chunk of chunks) {
-                const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(chunk)}&langpair=${sourceLang}|${targetLang}`;
+            for (let i = 0; i < chunks.length; i++) {
+                statusEl.textContent = `🌐 Traduction (${Math.round(((i + 1) / chunks.length) * 100)}%)...`;
+                const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(chunks[i])}&langpair=${sourceLang}|${targetLang}`;
                 const response = await fetch(url);
                 const data = await response.json();
                 if (data.responseData) finalTranslation += data.responseData.translatedText + " ";
@@ -586,7 +638,7 @@
             statusEl.textContent = "✅ Traduction terminée !";
             saveToHistory(text, result, `${sourceLang.toUpperCase()} → ${targetLang.toUpperCase()}`);
         } catch (error) {
-            statusEl.textContent = "Erreur traduction : " + error.message;
+            statusEl.textContent = "❌ Erreur traduction : " + error.message;
         }
     }
 
