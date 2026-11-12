@@ -10,10 +10,11 @@
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3898/3898082.png">
     <title>Scan & Traducteur Pro</title>
 
-    <!-- Bibliothèques : Tesseract (OCR), PDF.js (Lecture PDF), jsPDF (Export PDF) -->
+    <!-- Bibliothèques : Tesseract (OCR), PDF.js (Lecture PDF), jsPDF (Export PDF), JSZip (Lecture ZIP) -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <style>
         :root {
@@ -31,7 +32,6 @@
             --status-text: #0369a1;
         }
 
-        /* Variables Mode Sombre */
         body.dark-mode {
             --bg: #0f172a;
             --card: #1e293b;
@@ -216,7 +216,6 @@
         .export-btn.pdf { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
         .export-btn.word { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
 
-        /* Styles Historique */
         .history-header {
             display: flex;
             justify-content: space-between;
@@ -276,17 +275,17 @@
 
 <div class="card">
     <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('file', this)">📁 PDF / Image</button>
+        <button class="tab-btn active" onclick="switchTab('file', this)">📁 Fichier / ZIP</button>
         <button class="tab-btn" onclick="switchTab('camera', this)">📷 Caméra</button>
         <button class="tab-btn" onclick="switchTab('text', this)">✍️ Texte</button>
     </div>
 
-    <!-- Import Fichier -->
+    <!-- Import Fichier / ZIP / PDF / Image -->
     <div id="sec-file" class="input-section active">
         <div class="drop-zone" onclick="document.getElementById('fileInput').click()">
-            <p style="margin:0 0 6px 0; font-weight:bold;">Toucher pour choisir un PDF ou une Photo</p>
-            <span style="font-size:0.8rem; color:var(--text-muted);">Supporte PDF (texte ou scanné), JPG, PNG</span>
-            <input type="file" id="fileInput" accept=".pdf,image/*" style="display:none" onchange="handleFileUpload(event)">
+            <p style="margin:0 0 6px 0; font-weight:bold;">Toucher pour choisir un fichier (ZIP, PDF, Image)</p>
+            <span style="font-size:0.8rem; color:var(--text-muted);">Supporte ZIP, PDF, JPG, PNG, TXT</span>
+            <input type="file" id="fileInput" accept=".zip,.pdf,image/*,.txt" style="display:none" onchange="handleFileUpload(event)">
         </div>
     </div>
 
@@ -372,7 +371,7 @@
 </div>
 
 <script>
-    // --- GESTION DU THÈME SOMBRE ---
+    // --- THÈME SOMBRE ---
     const themeBtn = document.getElementById('themeBtn');
     function initTheme() {
         const savedTheme = localStorage.getItem('scantrad_theme');
@@ -389,7 +388,6 @@
     }
     initTheme();
 
-    // --- SERVICE WORKER & INSTALLATION PWA ---
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW erreur:', err));
     }
@@ -425,47 +423,89 @@
         }
     }
 
-    // --- IMPORT PDF & IMAGE ---
+    // --- GESTION DES FICHIERS (Y COMPRIS ZIP) ---
     async function handleFileUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
         sourceTextEl.value = '';
         translatedTextEl.value = '';
 
-        if (file.type === 'application/pdf') {
+        if (file.name.endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed') {
+            await processZIP(file);
+        } else if (file.type === 'application/pdf') {
             await processPDF(file);
         } else if (file.type.startsWith('image/')) {
             await runOCR(file);
+        } else if (file.type === 'text/plain') {
+            const text = await file.text();
+            sourceTextEl.value = text;
+            statusEl.textContent = "✅ Fichier texte chargé !";
         } else {
             statusEl.textContent = "Format non supporté.";
         }
     }
 
-    async function processPDF(file) {
-        statusEl.textContent = "Lecture du PDF...";
-        const arrayBuffer = await file.arrayBuffer();
+    // Traitement des archives ZIP
+    async function processZIP(file) {
+        statusEl.textContent = "Ouverture de l'archive ZIP...";
+        try {
+            const zip = new JSZip();
+            const contents = await zip.loadAsync(file);
+            let combinedText = "";
+
+            for (let filename of Object.keys(contents.files)) {
+                const zipEntry = contents.files[filename];
+                if (zipEntry.dir) continue; // Ignore les dossiers
+
+                statusEl.textContent = `Traitement de : ${filename}...`;
+                
+                if (filename.toLowerCase().endsWith('.txt')) {
+                    const text = await zipEntry.async("string");
+                    combinedText += `=== Fichier: ${filename} ===\n${text}\n\n`;
+                } else if (filename.toLowerCase().endsWith('.pdf')) {
+                    const pdfData = await zipEntry.async("uint8array");
+                    const pdfText = await extractTextFromPDFBuffer(pdfData);
+                    combinedText += `=== Fichier PDF: ${filename} ===\n${pdfText}\n\n`;
+                } else if (/\.(jpg|jpeg|png|webp)$/i.test(filename)) {
+                    const imgData = await zipEntry.async("blob");
+                    const ocrText = await runOCRForBlob(imgData);
+                    combinedText += `=== Fichier Image: ${filename} ===\n${ocrText}\n\n`;
+                }
+            }
+
+            sourceTextEl.value = combinedText.trim();
+            statusEl.textContent = "✅ Extraction du ZIP terminée !";
+        } catch (err) {
+            statusEl.textContent = "Erreur lecture ZIP : " + err.message;
+        }
+    }
+
+    async function extractTextFromPDFBuffer(arrayBuffer) {
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         let fullText = "";
-
         for (let i = 1; i <= pdf.numPages; i++) {
-            statusEl.textContent = `Analyse page ${i}/${pdf.numPages}...`;
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
             const pageText = textContent.items.map(item => item.str).join(' ');
-
             if (pageText.trim().length < 20) {
-                statusEl.textContent = `Page ${i} scannée : OCR en cours...`;
                 const viewport = page.getViewport({ scale: 2.0 });
                 const canvas = document.createElement('canvas');
                 canvas.height = viewport.height;
                 canvas.width = viewport.width;
                 await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
                 const ocrText = await recognizeCanvas(canvas);
-                fullText += `--- Page ${i} ---\n${ocrText}\n\n`;
+                fullText += `--- Page ${i} ---\n${ocrText}\n`;
             } else {
-                fullText += `--- Page ${i} ---\n${pageText}\n\n`;
+                fullText += `--- Page ${i} ---\n${pageText}\n`;
             }
         }
+        return fullText;
+    }
+
+    async function processPDF(file) {
+        statusEl.textContent = "Lecture du PDF...";
+        const arrayBuffer = await file.arrayBuffer();
+        const fullText = await extractTextFromPDFBuffer(arrayBuffer);
         sourceTextEl.value = fullText.trim();
         statusEl.textContent = "✅ Extraction PDF terminée !";
     }
@@ -502,6 +542,14 @@
         sourceTextEl.value = ret.data.text;
         await worker.terminate();
         statusEl.textContent = "✅ Numérisation terminée !";
+    }
+
+    async function runOCRForBlob(blob) {
+        const lang = document.getElementById('ocrLang').value;
+        const worker = await Tesseract.createWorker(lang);
+        const ret = await worker.recognize(blob);
+        await worker.terminate();
+        return ret.data.text;
     }
 
     async function recognizeCanvas(canvas) {
@@ -542,7 +590,7 @@
         }
     }
 
-    // --- GESTION DE L'HISTORIQUE ---
+    // --- HISTORIQUE ---
     function saveToHistory(source, translated, langPair) {
         if (!translated) return;
         const history = JSON.parse(localStorage.getItem('scantrad_history') || '[]');
@@ -554,7 +602,7 @@
             translated
         };
         history.unshift(entry);
-        if (history.length > 20) history.pop(); // Garde les 20 dernières traductions
+        if (history.length > 20) history.pop();
         localStorage.setItem('scantrad_history', JSON.stringify(history));
         renderHistory();
     }
@@ -601,7 +649,7 @@
 
     renderHistory();
 
-    // --- EXPORTATIONS (Copier, PDF, Word, TXT) ---
+    // --- EXPORTATIONS ---
     function copyText(id) {
         const el = document.getElementById(id);
         if (!el.value) return;
