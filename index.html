@@ -144,13 +144,14 @@
         }
         video {
             width: 100%;
-            max-height: 300px;
+            max-height: 280px;
             border-radius: 8px;
             background: #000;
+            object-fit: cover;
         }
         .btn-row {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             margin-top: 10px;
         }
         .btn {
@@ -166,6 +167,7 @@
         .btn-primary { background: var(--primary); color: white; }
         .btn-dark { background: #334155; color: white; }
         .btn-success { background: #059669; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
 
         .lang-grid {
             display: grid;
@@ -286,7 +288,7 @@
 <div class="card">
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('file', this)">📁 Fichier / ZIP</button>
-        <button class="tab-btn" onclick="switchTab('camera', this)">📷 Caméra</button>
+        <button class="tab-btn" onclick="switchTab('camera', this)">📷 Caméra / Livre</button>
         <button class="tab-btn" onclick="switchTab('text', this)">✍️ Texte</button>
     </div>
 
@@ -300,14 +302,21 @@
         <input type="file" id="fileInput" accept="*/*" style="display:none" onchange="handleFileUpload(event)">
     </div>
 
-    <!-- Caméra -->
+    <!-- Caméra & Mode Livre en continu -->
     <div id="sec-camera" class="input-section">
         <video id="video" autoplay playsinline></video>
         <canvas id="canvas" style="display:none;"></canvas>
         <div class="btn-row">
-            <button class="btn btn-dark" onclick="startCamera()">🎥 Ouvrir Caméra</button>
-            <button class="btn btn-primary" onclick="capturePhoto()">📸 Scanner</button>
+            <button class="btn btn-dark" onclick="startCamera()">🎥 Activer Caméra</button>
+            <button class="btn btn-primary" onclick="capturePhoto()">📸 Capturer Page</button>
         </div>
+        <div class="btn-row">
+            <button id="autoScanBtn" class="btn btn-success" onclick="toggleAutoScan()">📖 Mode Livre (Scan Auto)</button>
+            <button class="btn btn-danger" onclick="stopCamera()">⏹️ Fermer Caméra</button>
+        </div>
+        <p style="font-size:0.75rem; color:var(--text-muted); text-align:center; margin-top:8px;">
+            * Le Mode Livre capture automatiquement une page toutes les 4 secondes pour numériser un livre entier page par page.
+        </p>
     </div>
 
     <!-- Texte Libre -->
@@ -344,12 +353,12 @@
     <button class="btn btn-success" style="width:100%;" onclick="translateText()">🌐 Traduire maintenant</button>
 </div>
 
-<div class="status-bar" id="status">Prêt à numériser (PDF, ZIP, Caméra).</div>
+<div class="status-bar" id="status">Prêt à numériser (PDF, ZIP, Caméra, Livre).</div>
 
 <!-- Zone Texte Numérisé -->
 <div class="card">
     <strong>1. Texte numérisé / Source</strong>
-    <textarea id="sourceText" placeholder="Le texte extrait de votre PDF, ZIP ou photo apparaîtra ici..."></textarea>
+    <textarea id="sourceText" placeholder="Le texte extrait apparaîtra ici... (les pages scannées s'ajoutent à la suite)"></textarea>
     <div class="export-bar">
         <button class="export-btn" onclick="copyText('sourceText')">📋 Copier</button>
         <button class="export-btn pdf" onclick="exportPDF('sourceText', 'Document_Numerise')">📕 PDF</button>
@@ -424,22 +433,23 @@
     const sourceTextEl = document.getElementById('sourceText');
     const translatedTextEl = document.getElementById('translatedText');
     let stream = null;
+    let autoScanInterval = null;
+    let pageCounter = 1;
 
     function switchTab(tab, btn) {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.input-section').forEach(s => s.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById('sec-' + tab).classList.add('active');
-        if (tab !== 'camera' && stream) {
-            stream.getTracks().forEach(track => track.stop());
+        if (tab !== 'camera') {
+            stopCamera();
         }
     }
 
-    // --- LECTURE ROBUSTE DES FICHIERS DU TÉLÉPHONE ---
+    // --- LECTURE FICHIERS ---
     async function handleFileUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
-        
         const fileName = (file.name || "document").toLowerCase();
         const fileType = (file.type || "").toLowerCase();
         
@@ -459,54 +469,38 @@
                 sourceTextEl.value = text;
                 statusEl.textContent = `✅ Fichier texte "${file.name}" chargé !`;
             } else {
-                // Analyse des signatures binaires (magical numbers) pour les fichiers sans extension claire
                 const buffer = await file.arrayBuffer();
                 const header = new Uint8Array(buffer.slice(0, 4));
                 const hex = Array.from(header).map(b => b.toString(16).padStart(2, '0')).join('');
-                
                 if (hex === '504b0304') {
                     await processZIP(file);
                 } else if (hex === '25504446') {
                     await processPDF(file);
-                } else if (header[0] === 0xff || header[0] === 0x89) { // En-têtes image courants (JPEG/PNG)
-                    await runOCR(file);
                 } else {
-                    // Par défaut, tente de lire comme du texte brut
                     const text = new TextDecoder().decode(buffer);
-                    if (text.trim().length > 0) {
-                        sourceTextEl.value = text;
-                        statusEl.textContent = `✅ Fichier chargé en mode texte.`;
-                    } else {
-                        statusEl.textContent = `⚠️ Format non pris en charge. Veuillez choisir un PDF, ZIP ou Image.`;
-                    }
+                    if (text.trim().length > 0) sourceTextEl.value = text;
+                    else statusEl.textContent = `⚠️ Format non pris en charge.`;
                 }
             }
         } catch (err) {
-            statusEl.textContent = `❌ Erreur : ${err.message || "Impossible de lire le fichier"}`;
-            console.error(err);
+            statusEl.textContent = `❌ Erreur : ${err.message || "Erreur de lecture"}`;
         }
-        
         event.target.value = '';
     }
 
-    // --- TRAITEMENT ZIP ---
     async function processZIP(file) {
-        statusEl.textContent = `📦 Analyse de l'archive ${file.name}...`;
+        statusEl.textContent = `📦 Analyse ZIP ${file.name}...`;
         const zip = new JSZip();
         const contents = await zip.loadAsync(file);
         let combinedText = "";
         let fileCount = 0;
 
-        const entries = Object.keys(contents.files).sort();
-
-        for (let filename of entries) {
+        for (let filename of Object.keys(contents.files).sort()) {
             const zipEntry = contents.files[filename];
             if (zipEntry.dir || filename.startsWith('__MACOSX') || filename.split('/').pop().startsWith('.')) continue;
 
             const lowerName = filename.toLowerCase();
-            statusEl.textContent = `📦 Extraction : ${filename}...`;
-            
-            if (lowerName.endsWith('.txt') || lowerName.endsWith('.md') || lowerName.endsWith('.csv')) {
+            if (lowerName.endsWith('.txt') || lowerName.endsWith('.md')) {
                 const text = await zipEntry.async("string");
                 combinedText += `=== 📄 ${filename} ===\n${text}\n\n`;
                 fileCount++;
@@ -522,13 +516,8 @@
                 fileCount++;
             }
         }
-
-        if (fileCount === 0) {
-            statusEl.textContent = "⚠️ Aucun fichier compatible (PDF, Image, TXT) trouvé dans ce ZIP.";
-        } else {
-            sourceTextEl.value = combinedText.trim();
-            statusEl.textContent = `✅ ${fileCount} fichier(s) extrait(s) du ZIP !`;
-        }
+        sourceTextEl.value = combinedText.trim();
+        statusEl.textContent = `✅ ${fileCount} fichier(s) extrait(s) du ZIP !`;
     }
 
     async function extractTextFromPDFBuffer(arrayBuffer, label = "PDF") {
@@ -541,7 +530,6 @@
             const pageText = textContent.items.map(item => item.str).join(' ');
             
             if (pageText.trim().length < 20) {
-                statusEl.textContent = `🔍 ${label} (page ${i}/${pdf.numPages}) : OCR...`;
                 const viewport = page.getViewport({ scale: 2.0 });
                 const canvas = document.createElement('canvas');
                 canvas.height = viewport.height;
@@ -559,32 +547,81 @@
     async function processPDF(file) {
         statusEl.textContent = `📕 Lecture de ${file.name}...`;
         const arrayBuffer = await file.arrayBuffer();
-        const fullText = await extractTextFromPDFBuffer(arrayBuffer, file.name);
-        sourceTextEl.value = fullText.trim();
+        sourceTextEl.value = await extractTextFromPDFBuffer(arrayBuffer, file.name);
         statusEl.textContent = `✅ PDF "${file.name}" extrait !`;
     }
 
-    // --- CAMÉRA ---
+    // --- CAMÉRA & MODE LIVRE ---
     async function startCamera() {
         try {
-            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
+            });
             document.getElementById('video').srcObject = stream;
-            statusEl.textContent = "Caméra prête. Cadrez et appuyez sur Scanner.";
+            statusEl.textContent = "Caméra active. Tournez les pages de votre livre et capturez.";
+            pageCounter = 1;
         } catch (err) {
             statusEl.textContent = "Erreur caméra : " + (err.message || "Accès refusé");
         }
     }
 
+    function stopCamera() {
+        if (autoScanInterval) {
+            clearInterval(autoScanInterval);
+            autoScanInterval = null;
+            document.getElementById('autoScanBtn').textContent = "📖 Mode Livre (Scan Auto)";
+            document.getElementById('autoScanBtn').style.background = "#059669";
+        }
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+        }
+        document.getElementById('video').srcObject = null;
+        statusEl.textContent = "Caméra fermée.";
+    }
+
     async function capturePhoto() {
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        if (!video.srcObject) return alert("Activez d'abord la caméra.");
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        statusEl.textContent = "Numérisation OCR en cours...";
-        sourceTextEl.value = await recognizeCanvas(canvas);
-        statusEl.textContent = "✅ Texte extrait de la photo !";
+        if (!video.srcObject) {
+            alert("Veuillez d'abord activer la caméra.");
+            return;
+        }
+        canvas.width = video.videoWidth || 1280;
+        canvas.height = video.videoHeight || 720;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        statusEl.textContent = `🔍 Numérisation de la page ${pageCounter} (OCR)...`;
+        const text = await recognizeCanvas(canvas);
+        
+        const header = `\n\n--- [ Page Livre n°${pageCounter} ] ---\n`;
+        sourceTextEl.value = (sourceTextEl.value ? sourceTextEl.value + header : `--- [ Page Livre n°${pageCounter} ] ---\n`) + text.trim();
+        
+        statusEl.textContent = `✅ Page ${pageCounter} ajoutée avec succès !`;
+        pageCounter++;
+    }
+
+    function toggleAutoScan() {
+        const btn = document.getElementById('autoScanBtn');
+        if (!stream) {
+            alert("Veuillez d'abord activer la caméra.");
+            return;
+        }
+
+        if (autoScanInterval) {
+            clearInterval(autoScanInterval);
+            autoScanInterval = null;
+            btn.textContent = "📖 Mode Livre (Scan Auto)";
+            btn.style.background = "#059669";
+            statusEl.textContent = "Mode Livre automatique arrêté.";
+        } else {
+            btn.textContent = "⏸️ Stop Mode Livre";
+            btn.style.background = "#dc2626";
+            statusEl.textContent = "📖 Mode Livre actif : Tournez les pages calmement...";
+            autoScanInterval = setInterval(() => {
+                capturePhoto();
+            }, 5000); // Capture une page toutes les 5 secondes
+        }
     }
 
     // --- OCR ---
