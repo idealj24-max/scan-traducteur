@@ -292,7 +292,7 @@
         <button class="tab-btn" onclick="switchTab('text', this)">✍️ Texte</button>
     </div>
 
-    <!-- Import Fichier téléphone -->
+    <!-- Import Fichier -->
     <div id="sec-file" class="input-section active">
         <label for="fileInput" class="drop-zone">
             <p style="margin:0 0 6px 0; font-weight:bold;">📂 Ouvrir un fichier du téléphone</p>
@@ -302,20 +302,20 @@
         <input type="file" id="fileInput" accept="*/*" style="display:none" onchange="handleFileUpload(event)">
     </div>
 
-    <!-- Caméra & Mode Livre en continu -->
+    <!-- Caméra & Mode Capture / Livre -->
     <div id="sec-camera" class="input-section">
         <video id="video" autoplay playsinline></video>
         <canvas id="canvas" style="display:none;"></canvas>
         <div class="btn-row">
             <button class="btn btn-dark" onclick="startCamera()">🎥 Activer Caméra</button>
-            <button class="btn btn-primary" onclick="capturePhoto()">📸 Capturer Page</button>
+            <button class="btn btn-primary" onclick="captureAndScanPhoto()">📸 Prendre Photo & Scanner</button>
         </div>
         <div class="btn-row">
             <button id="autoScanBtn" class="btn btn-success" onclick="toggleAutoScan()">📖 Mode Livre (Scan Auto)</button>
             <button class="btn btn-danger" onclick="stopCamera()">⏹️ Fermer Caméra</button>
         </div>
         <p style="font-size:0.75rem; color:var(--text-muted); text-align:center; margin-top:8px;">
-            * Le Mode Livre capture automatiquement une page toutes les 4 secondes pour numériser un livre entier page par page.
+            * Prenez une photo unique ou activez le mode livre pour scanner des pages en continu.
         </p>
     </div>
 
@@ -353,12 +353,12 @@
     <button class="btn btn-success" style="width:100%;" onclick="translateText()">🌐 Traduire maintenant</button>
 </div>
 
-<div class="status-bar" id="status">Prêt à numériser (PDF, ZIP, Caméra, Livre).</div>
+<div class="status-bar" id="status">Prêt à numériser (PDF, ZIP, Caméra).</div>
 
 <!-- Zone Texte Numérisé -->
 <div class="card">
     <strong>1. Texte numérisé / Source</strong>
-    <textarea id="sourceText" placeholder="Le texte extrait apparaîtra ici... (les pages scannées s'ajoutent à la suite)"></textarea>
+    <textarea id="sourceText" placeholder="Le texte extrait apparaîtra ici..."></textarea>
     <div class="export-bar">
         <button class="export-btn" onclick="copyText('sourceText')">📋 Copier</button>
         <button class="export-btn pdf" onclick="exportPDF('sourceText', 'Document_Numerise')">📕 PDF</button>
@@ -551,14 +551,14 @@
         statusEl.textContent = `✅ PDF "${file.name}" extrait !`;
     }
 
-    // --- CAMÉRA & MODE LIVRE ---
+    // --- CAMÉRA & CAPTURE INSTANTANÉE ---
     async function startCamera() {
         try {
             stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
             });
             document.getElementById('video').srcObject = stream;
-            statusEl.textContent = "Caméra active. Tournez les pages de votre livre et capturez.";
+            statusEl.textContent = "Caméra active. Cadrez le texte et prenez la photo.";
             pageCounter = 1;
         } catch (err) {
             statusEl.textContent = "Erreur caméra : " + (err.message || "Accès refusé");
@@ -580,7 +580,7 @@
         statusEl.textContent = "Caméra fermée.";
     }
 
-    async function capturePhoto() {
+    async function captureAndScanPhoto() {
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         if (!video.srcObject) {
@@ -591,13 +591,13 @@
         canvas.height = video.videoHeight || 720;
         canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        statusEl.textContent = `🔍 Numérisation de la page ${pageCounter} (OCR)...`;
+        statusEl.textContent = `📸 Photo prise ! Numérisation OCR en cours...`;
         const text = await recognizeCanvas(canvas);
         
-        const header = `\n\n--- [ Page Livre n°${pageCounter} ] ---\n`;
-        sourceTextEl.value = (sourceTextEl.value ? sourceTextEl.value + header : `--- [ Page Livre n°${pageCounter} ] ---\n`) + text.trim();
+        const header = `\n\n--- [ Capture Photo n°${pageCounter} ] ---\n`;
+        sourceTextEl.value = (sourceTextEl.value ? sourceTextEl.value + header : `--- [ Capture Photo n°${pageCounter} ] ---\n`) + text.trim();
         
-        statusEl.textContent = `✅ Page ${pageCounter} ajoutée avec succès !`;
+        statusEl.textContent = `✅ Photo ${pageCounter} numérisée avec succès !`;
         pageCounter++;
     }
 
@@ -619,8 +619,8 @@
             btn.style.background = "#dc2626";
             statusEl.textContent = "📖 Mode Livre actif : Tournez les pages calmement...";
             autoScanInterval = setInterval(() => {
-                capturePhoto();
-            }, 5000); // Capture une page toutes les 5 secondes
+                captureAndScanPhoto();
+            }, 5000); // Capture et scanne automatiquement une page toutes les 5 secondes
         }
     }
 
